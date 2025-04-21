@@ -1,4 +1,3 @@
-
 /**
  * This is a simulator for blog post scheduling
  * 
@@ -9,6 +8,8 @@
 import { PostSchedule, UserCredentials } from '@/types';
 import { WordPressClient } from './wordpress';
 import { GeminiClient } from './gemini';
+import { convertToUTC, getUserTimezone } from '@/utils/timezone';
+import { supabase } from '@/integrations/supabase/client';
 
 // Storage keys
 const SCHEDULES_KEY_PREFIX = 'blog_genie_schedules_';
@@ -17,52 +18,65 @@ const SCHEDULES_KEY_PREFIX = 'blog_genie_schedules_';
  * Process pending schedules that are due
  */
 export async function processSchedules(userId: string, credentials: UserCredentials): Promise<void> {
-  const schedulesKey = `${SCHEDULES_KEY_PREFIX}${userId}`;
-  const schedulesJson = localStorage.getItem(schedulesKey);
-  
-  if (!schedulesJson) {
-    return;
-  }
-  
-  const schedules: PostSchedule[] = JSON.parse(schedulesJson);
-  const now = new Date();
-  let hasChanges = false;
-  
-  // Initialize clients
-  const wordpressClient = new WordPressClient(
-    credentials.wordpressSiteUrl,
-    credentials.wordpressUsername,
-    credentials.wordpressAppPassword
-  );
-  
-  const geminiClient = new GeminiClient(credentials.geminiApiKey);
-  
-  // Process each pending schedule that's due
-  for (const schedule of schedules) {
-    if (schedule.status === 'pending' && new Date(schedule.scheduledDate) <= now) {
-      console.log(`Processing scheduled post: ${schedule.id}`);
+  try {
+    // Get user's timezone
+    const timezone = await getUserTimezone();
+    
+    // Get pending schedules from Supabase
+    const { data: schedules } = await supabase
+      .from('post_schedules')
+      .select('*')
+      .eq('status', 'pending')
+      .eq('user_id', userId);
+
+    if (!schedules || schedules.length === 0) {
+      return;
+    }
+
+    // Initialize clients
+    const wordpressClient = new WordPressClient(
+      credentials.wordpressSiteUrl,
+      credentials.wordpressUsername,
+      credentials.wordpressAppPassword
+    );
+    
+    const geminiClient = new GeminiClient(credentials.geminiApiKey);
+
+    const now = new Date();
+
+    // Process each pending schedule that's due
+    for (const schedule of schedules) {
+      const scheduledDate = new Date(schedule.scheduled_at);
       
-      try {
-        // Process the schedule
-        await processSchedule(schedule, wordpressClient, geminiClient);
+      if (scheduledDate <= now) {
+        console.log(`Processing scheduled post: ${schedule.id}`);
         
-        // Mark as completed
-        schedule.status = 'completed';
-        hasChanges = true;
-      } catch (error) {
-        console.error('Error processing schedule:', error);
-        
-        // Mark as failed
-        schedule.status = 'failed';
-        schedule.error = error instanceof Error ? error.message : 'Unknown error';
-        hasChanges = true;
+        try {
+          // Process the schedule
+          await processSchedule(schedule, wordpressClient, geminiClient);
+          
+          // Mark as completed
+          await supabase
+            .from('post_schedules')
+            .update({ status: 'completed' })
+            .eq('id', schedule.id);
+            
+        } catch (error) {
+          console.error('Error processing schedule:', error);
+          
+          // Mark as failed
+          await supabase
+            .from('post_schedules')
+            .update({
+              status: 'failed',
+              error: error instanceof Error ? error.message : 'Unknown error'
+            })
+            .eq('id', schedule.id);
+        }
       }
     }
-  }
-  
-  // Save updated schedules
-  if (hasChanges) {
-    localStorage.setItem(schedulesKey, JSON.stringify(schedules));
+  } catch (error) {
+    console.error('Error in processSchedules:', error);
   }
 }
 
@@ -89,6 +103,36 @@ async function processSchedule(
     if (!post) {
       throw new Error(`Failed to create post for topic: ${topic}`);
     }
+  }
+}
+
+/**
+ * Create a new schedule
+ */
+export async function createSchedule(
+  userId: string,
+  topics: string[],
+  scheduledDate: Date
+): Promise<boolean> {
+  try {
+    const timezone = await getUserTimezone();
+    const utcDate = convertToUTC(scheduledDate, timezone);
+
+    const { error } = await supabase.from('post_schedules').insert({
+      user_id: userId,
+      topics,
+      scheduled_at: utcDate.toISOString(),
+      local_timezone: timezone
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error creating schedule:', error);
+    return false;
   }
 }
 
