@@ -28,14 +28,14 @@ export default function Dashboard() {
   
   // Filter upcoming schedules
   const upcomingSchedules = schedules
-    .filter(s => s.status === 'pending' && new Date(s.scheduledDate) > new Date())
-    .sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime())
+    .filter(s => s.status === 'pending' && new Date(s.scheduled_at) > new Date())
+    .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())
     .slice(0, 5);
   
   // Filter failed schedules
   const failedSchedules = schedules
     .filter(s => s.status === 'failed')
-    .sort((a, b) => new Date(b.scheduledDate).getTime() - new Date(a.scheduledDate).getTime())
+    .sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime())
     .slice(0, 5);
 
   // Check if credentials are set up
@@ -141,10 +141,10 @@ export default function Dashboard() {
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-medium">
-                        {new Date(schedule.scheduledDate).toLocaleDateString()}
+                        {new Date(schedule.scheduled_at).toLocaleDateString()}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {new Date(schedule.scheduledDate).toLocaleTimeString([], {
+                        {new Date(schedule.scheduled_at).toLocaleTimeString([], {
                           hour: '2-digit',
                           minute: '2-digit',
                         })}
@@ -189,7 +189,7 @@ export default function Dashboard() {
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-medium">
-                        {new Date(schedule.scheduledDate).toLocaleDateString()}
+                        {new Date(schedule.scheduled_at).toLocaleDateString()}
                       </p>
                       <Button
                         variant="outline"

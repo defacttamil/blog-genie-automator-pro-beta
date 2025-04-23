@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import MainLayout from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
@@ -22,14 +21,12 @@ const DEFAULT_TIMEZONES = [
 // Get timezones safely
 const timezones = (() => {
   try {
-    // Try to use the modern API if available
-    if (typeof Intl !== 'undefined' && 'supportedValuesOf' in Intl) {
-      return Intl.supportedValuesOf('timeZone');
-    }
+    // Use the default list as Intl.supportedValuesOf is not widely supported
+    return DEFAULT_TIMEZONES;
   } catch (e) {
-    console.warn('Intl.supportedValuesOf not available, using fallback timezones');
+    console.warn('Using fallback timezones');
+    return DEFAULT_TIMEZONES;
   }
-  return DEFAULT_TIMEZONES;
 })();
 
 export default function Account() {

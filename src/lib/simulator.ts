@@ -45,23 +45,32 @@ export async function processSchedules(userId: string, credentials: UserCredenti
     try {
       const scheduledAt = new Date(schedule.scheduled_at);
       if (scheduledAt <= now) {
-        // Process posts for each topic
-        await processSchedule({
+        // Convert database schedule to PostSchedule type
+        const postSchedule: PostSchedule = {
           id: schedule.id,
           user_id: schedule.user_id,
           topics: schedule.topics,
-          time: schedule.time,
-          days: schedule.days,
+          time: schedule.time || "12:00", // Default if missing
+          days: schedule.days || [], // Default if missing
           scheduled_at: schedule.scheduled_at,
-          status: schedule.status,
+          status: schedule.status as "pending" | "completed" | "failed",
           error: schedule.error,
           local_timezone: schedule.local_timezone,
           created_at: schedule.created_at,
           updated_at: schedule.updated_at,
-        }, wordpressClient, geminiClient);
+        };
+        
+        // Process posts for each topic
+        await processSchedule(postSchedule, wordpressClient, geminiClient);
 
         // Find next occurrence for recurring schedule:
-        const nextFire = getNextScheduleDayUtc(schedule.days, schedule.time, schedule.local_timezone || timezone, now);
+        const nextFire = getNextScheduleDayUtc(
+          postSchedule.days, 
+          postSchedule.time,
+          postSchedule.local_timezone || timezone, 
+          now
+        );
+        
         await supabase.from('post_schedules').update({
           scheduled_at: nextFire.toISOString()
         }).eq('id', schedule.id);
