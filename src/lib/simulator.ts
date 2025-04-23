@@ -46,14 +46,18 @@ export async function processSchedules(userId: string, credentials: UserCredenti
       const scheduledAt = new Date(schedule.scheduled_at);
       if (scheduledAt <= now) {
         // Convert database schedule to PostSchedule type
+        // Safely extract time and days or use default values
+        const timeValue = schedule.time as string || "12:00"; // Cast as string and provide default
+        const daysValue = schedule.days as Weekday[] || []; // Cast as Weekday[] and provide default
+        
         const postSchedule: PostSchedule = {
           id: schedule.id,
           user_id: schedule.user_id,
           topics: schedule.topics,
-          time: schedule.time || "12:00", // Default if missing
-          days: schedule.days || [], // Default if missing
+          time: timeValue,
+          days: daysValue,
           scheduled_at: schedule.scheduled_at,
-          status: schedule.status as "pending" | "completed" | "failed",
+          status: schedule.status as "pending" | "completed" | "failed", // Ensure correct type
           error: schedule.error,
           local_timezone: schedule.local_timezone,
           created_at: schedule.created_at,
@@ -65,8 +69,8 @@ export async function processSchedules(userId: string, credentials: UserCredenti
 
         // Find next occurrence for recurring schedule:
         const nextFire = getNextScheduleDayUtc(
-          postSchedule.days, 
-          postSchedule.time,
+          daysValue, 
+          timeValue,
           postSchedule.local_timezone || timezone, 
           now
         );

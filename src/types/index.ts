@@ -63,6 +63,18 @@ export interface PostSchedule {
   updated_at?: string;
 }
 
+// Extend the Supabase database types to add missing fields to post_schedules
+declare module '@/integrations/supabase/types' {
+  interface Tables {
+    post_schedules: {
+      Row: {
+        time?: string;
+        days?: Weekday[];
+      }
+    }
+  }
+}
+
 export interface DashboardStats {
   totalPosts: number;
   totalViews: number;
