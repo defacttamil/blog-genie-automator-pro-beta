@@ -1,24 +1,27 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { format } from 'date-fns';
-import { Calendar as CalendarIcon, Clock, Loader2 } from 'lucide-react';
+import { Clock, Loader2 } from 'lucide-react';
 import MainLayout from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
 import { cn } from '@/lib/utils';
 import { useUserData } from '@/context/UserDataContext';
 import { useToast } from '@/hooks/use-toast';
+import { Weekday } from '@/types';
+
+const WEEKDAYS: Weekday[] = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
+];
 
 export default function Scheduling() {
-  const [date, setDate] = useState<Date | undefined>(undefined);
   const [time, setTime] = useState('12:00');
   const [topics, setTopics] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedDays, setSelectedDays] = useState<Weekday[]>([]);
   const { credentials, createSchedule } = useUserData();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -32,91 +35,48 @@ export default function Scheduling() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!date) {
-      toast({
-        title: "Date required",
-        description: "Please select a date for scheduling",
-        variant: "destructive",
-      });
+    if (!selectedDays.length) {
+      toast({ title: "Choose days", description: "Pick at least one day", variant: "destructive" });
       return;
     }
-    
     if (!topics.trim()) {
-      toast({
-        title: "Topics required",
-        description: "Please enter at least one topic",
-        variant: "destructive",
-      });
+      toast({ title: "Topics required", description: "Please enter at least one topic", variant: "destructive" });
       return;
     }
-    
     // Parse topics
-    const topicsArray = topics
-      .split(/[\n,]+/) // Split by new line or comma
-      .map(topic => topic.trim())
-      .filter(topic => topic.length > 0);
-    
-    if (topicsArray.length === 0) {
-      toast({
-        title: "Invalid topics",
-        description: "Please enter valid topics separated by commas or new lines",
-        variant: "destructive",
-      });
+    const topicsArray = topics.split(/[\n,]+/).map(t => t.trim()).filter(Boolean);
+    if (!topicsArray.length) {
+      toast({ title: "Invalid topics", description: "Please enter valid topics separated by commas or new lines", variant: "destructive" });
       return;
     }
-    
-    // Combine date and time
-    const [hours, minutes] = time.split(':').map(Number);
-    const scheduledDate = new Date(date);
-    scheduledDate.setHours(hours, minutes);
-    
-    // Check if date is in the past
-    if (scheduledDate < new Date()) {
-      toast({
-        title: "Invalid schedule time",
-        description: "Schedule time must be in the future",
-        variant: "destructive",
-      });
-      return;
-    }
-    
     setIsSubmitting(true);
-    
     try {
-      // Now passing Date object directly instead of ISO string
-      const success = await createSchedule(topicsArray, scheduledDate);
-      
+      // topic, time, days are passed now
+      const success = await createSchedule(topicsArray, time, selectedDays);
       if (success) {
         toast({
-          title: "Posts scheduled",
-          description: `Successfully scheduled ${topicsArray.length} post${topicsArray.length > 1 ? 's' : ''}`,
+          title: "Recurring posts scheduled",
+          description: `Post(s) scheduled for ${selectedDays.join(', ')} at ${time}`,
         });
-        
-        // Clear the form
-        setDate(undefined);
         setTime('12:00');
         setTopics('');
-        
-        // Navigate to dashboard
+        setSelectedDays([]);
         navigate('/dashboard');
       } else {
-        toast({
-          title: "Scheduling failed",
-          description: "Failed to schedule posts",
-          variant: "destructive",
-        });
+        toast({ title: "Scheduling failed", description: "Failed to schedule posts", variant: "destructive" });
       }
     } catch (error) {
       console.error('Scheduling error:', error);
-      toast({
-        title: "Scheduling error",
-        description: "An unexpected error occurred",
-        variant: "destructive",
-      });
+      toast({ title: "Scheduling error", description: "An unexpected error occurred", variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const toggleDay = (day: Weekday) => {
+    setSelectedDays((days) => days.includes(day)
+      ? days.filter(d => d !== day)
+      : [...days, day]);
   };
 
   return (
@@ -157,44 +117,32 @@ export default function Scheduling() {
             
             <CardContent className="space-y-6">
               <div className="space-y-2">
-                <Label>Schedule Date and Time</Label>
-                <div className="flex flex-wrap gap-4">
-                  <div className="flex-1 min-w-[240px]">
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            "w-full justify-start text-left font-normal",
-                            !date && "text-muted-foreground"
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {date ? format(date, "PPP") : "Select date"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          selected={date}
-                          onSelect={setDate}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  
-                  <div>
-                    <div className="flex items-center">
-                      <Clock className="mr-2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        type="time"
-                        value={time}
-                        onChange={(e) => setTime(e.target.value)}
-                        className="w-[120px]"
-                      />
-                    </div>
-                  </div>
+                <Label>Select Days of Week</Label>
+                <div className="flex flex-wrap gap-2">
+                  {WEEKDAYS.map((day) => (
+                    <Button
+                      type="button"
+                      key={day}
+                      variant={selectedDays.includes(day) ? "default" : "outline"}
+                      onClick={() => toggleDay(day)}
+                      className="px-4"
+                    >
+                      {day.slice(0, 3)}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Time (Local)</Label>
+                <div className="flex items-center">
+                  <Clock className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="time"
+                    value={time}
+                    onChange={(e) => setTime(e.target.value)}
+                    className="w-[120px]"
+                  />
                 </div>
               </div>
               
@@ -202,17 +150,13 @@ export default function Scheduling() {
                 <Label htmlFor="topics">Blog Topics</Label>
                 <Textarea
                   id="topics"
-                  placeholder="Enter blog topics (one per line or comma-separated)
-Example:
-10 Ways to Improve SEO Rankings
-Best Productivity Tools for 2023
-How to Start a Successful Blog"
+                  placeholder="Enter blog topics (one per line or comma-separated)..."
                   value={topics}
                   onChange={(e) => setTopics(e.target.value)}
-                  className="min-h-[200px]"
+                  className="min-h-[150px]"
                 />
                 <p className="text-sm text-muted-foreground">
-                  Each topic will generate a separate blog post at the scheduled time.
+                  Each topic will generate a post on each scheduled day at the selected time.
                 </p>
               </div>
             </CardContent>

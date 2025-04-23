@@ -1,6 +1,5 @@
-
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { UserCredentials, PostSchedule, DashboardStats } from '@/types';
+import { UserCredentials, PostSchedule, DashboardStats, Weekday } from '@/types';
 import { useAuth } from './AuthContext';
 import { WordPressClient } from '@/lib/wordpress';
 import { GeminiClient } from '@/lib/gemini';
@@ -16,8 +15,8 @@ interface UserDataContextType {
   geminiClient: GeminiClient | null;
   isLoading: boolean;
   error: string | null;
-  updateCredentials: (credentials: UserCredentials) => void;
-  createSchedule: (topics: string[], scheduledDate: Date) => Promise<boolean>;
+  updateCredentials: (credentials: UserCredentials & { local_timezone?: string }) => void;
+  createSchedule: (topics: string[], time: string, days: Weekday[]) => Promise<boolean>;
   refreshStats: () => Promise<void>;
 }
 
@@ -110,7 +109,7 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       if (error) throw error;
       
       if (supabaseSchedules) {
-        setSchedules(supabaseSchedules);
+        setSchedules(supabaseSchedules.map(mapScheduleRow));
       }
       
       setIsLoading(false);
@@ -121,10 +120,9 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Update user credentials
-  const updateCredentials = (newCredentials: UserCredentials) => {
+  // Update user credentials with local_timezone (comes from Account page)
+  const updateCredentials = (newCredentials: UserCredentials & { local_timezone?: string }) => {
     if (!user) return;
-    
     try {
       localStorage.setItem(`${CREDENTIALS_KEY}${user.id}`, JSON.stringify(newCredentials));
       setCredentials(newCredentials);
@@ -135,35 +133,89 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Create a new post schedule
-  const createSchedule = async (topics: string[], scheduledDate: Date): Promise<boolean> => {
+  // Create a new post schedule (now with day-of-week recurrence)
+  const createSchedule = async (
+    topics: string[],
+    time: string,
+    days: Weekday[]
+  ): Promise<boolean> => {
     if (!user) return false;
-    
     try {
-      const success = await createScheduleInSimulator(user.id, topics, scheduledDate);
-      
-      if (success) {
-        // Refresh schedules from Supabase
-        const { data: updatedSchedules } = await supabase
-          .from('post_schedules')
-          .select('*')
-          .eq('user_id', user.id);
-          
-        if (updatedSchedules) {
-          setSchedules(updatedSchedules);
-        }
-        
-        // Update dashboard stats
-        await refreshStats();
+      // Store as a new schedule with days and time
+      // (Simulator will expand/trigger as needed)
+      const userTimezone = credentials?.local_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const now = new Date();
+      const nextDay = getNextScheduleDayUtc(days, time, userTimezone);
+
+      // Insert one schedule row (topics, days, time, timezone, status=pending)
+      const { error } = await supabase.from('post_schedules').insert({
+        user_id: user.id,
+        topics,
+        time,
+        days,
+        scheduled_at: nextDay.toISOString(), // next occurence in UTC
+        local_timezone: userTimezone,
+        status: 'pending',
+      });
+      if (error) throw error;
+      // Refresh schedules
+      const { data: updatedSchedules } = await supabase
+        .from('post_schedules')
+        .select('*')
+        .eq('user_id', user.id);
+      if (updatedSchedules) {
+        setSchedules(updatedSchedules.map(mapScheduleRow));
       }
-      
-      return success;
+      await refreshStats();
+      return true;
     } catch (error) {
       console.error('Error creating schedule:', error);
       setError('Failed to create schedule');
       return false;
     }
   };
+
+  // Helper for finding the next scheduled day/time in UTC
+  function getNextScheduleDayUtc(days: Weekday[], time: string, tz: string): Date {
+    // Find next date from now for any of the chosen days and the given time, in the user's timezone
+    const localNow = new Date();
+    let soonest: Date | null = null;
+    for (let addDays = 0; addDays < 7; addDays++) {
+      const d = new Date(localNow);
+      d.setDate(d.getDate() + addDays);
+      const weekday = d.toLocaleDateString('en-US', { weekday: 'long', timeZone: tz }) as Weekday;
+      if (days.includes(weekday)) {
+        // set to desired hour/minute
+        const [h, m] = time.split(':').map(Number);
+        d.setHours(h, m, 0, 0);
+        const inTz = new Date(d.toLocaleString('en-US', { timeZone: tz }));
+        if (inTz > localNow && (!soonest || inTz < soonest)) {
+          soonest = inTz;
+        }
+      }
+    }
+    // Convert to UTC
+    return soonest || localNow;
+  }
+
+  // Ensure Supabase schedule row → PostSchedule with correct field types
+  function mapScheduleRow(row: any): PostSchedule {
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      topics: row.topics,
+      time: row.time,
+      days: row.days,
+      scheduled_at: row.scheduled_at,
+      status: (row.status === 'pending' || row.status === 'completed' || row.status === 'failed')
+        ? row.status
+        : 'pending',
+      error: row.error,
+      local_timezone: row.local_timezone,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }
 
   // Refresh dashboard stats
   const refreshStats = async () => {

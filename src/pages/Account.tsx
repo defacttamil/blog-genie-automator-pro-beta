@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import MainLayout from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
@@ -9,36 +8,50 @@ import { useUserData } from '@/context/UserDataContext';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 import { UserCredentials } from '@/types';
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
+
+const timezones = Intl.supportedValuesOf
+  ? Intl.supportedValuesOf('timeZone')
+  : [
+    "UTC", "America/New_York", "America/Chicago", "Europe/London",
+    "Asia/Kolkata", "Asia/Singapore", "Australia/Sydney"
+  ];
 
 export default function Account() {
   const { credentials, updateCredentials } = useUserData();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // Form state
   const [formData, setFormData] = useState<UserCredentials>({
     wordpressSiteUrl: '',
     wordpressUsername: '',
     wordpressAppPassword: '',
     geminiApiKey: '',
   });
-  
-  // Initialize form with existing credentials
+
+  const [userTimezone, setUserTimezone] = useState(
+    Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+  );
+
   useEffect(() => {
-    if (credentials) {
-      setFormData(credentials);
+    if (credentials && credentials.local_timezone) {
+      setUserTimezone(credentials.local_timezone);
     }
   }, [credentials]);
-  
+
+  useEffect(() => {
+    const tz = localStorage.getItem("blog_genie_timezone");
+    if (tz) setUserTimezone(tz);
+  }, []);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
-  
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validate inputs
     if (!formData.wordpressSiteUrl || !formData.wordpressUsername || !formData.wordpressAppPassword || !formData.geminiApiKey) {
       toast({
         title: "All fields required",
@@ -48,7 +61,6 @@ export default function Account() {
       return;
     }
     
-    // Validate WordPress URL
     let url = formData.wordpressSiteUrl;
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       url = 'https://' + url;
@@ -57,11 +69,12 @@ export default function Account() {
     setIsSubmitting(true);
     
     try {
-      // Update credentials with normalized URL
       updateCredentials({
         ...formData,
         wordpressSiteUrl: url,
+        local_timezone: userTimezone,
       });
+      localStorage.setItem("blog_genie_timezone", userTimezone);
       
       toast({
         title: "Settings updated",
@@ -162,6 +175,23 @@ export default function Account() {
                 >
                   Google AI Developer website
                 </a>
+              </p>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="timezone">Default Timezone</Label>
+              <Select value={userTimezone} onValueChange={setUserTimezone}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select timezone" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72 overflow-y-auto">
+                  {timezones.map((tz) => (
+                    <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                Used for scheduling post times. Default: your browser timezone.
               </p>
             </div>
           </CardContent>

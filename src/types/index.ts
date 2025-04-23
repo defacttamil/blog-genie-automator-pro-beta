@@ -43,12 +43,17 @@ export interface UserCredentials {
   geminiApiKey: string;
 }
 
+// Days of the week for scheduling options
+export type Weekday = 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday';
+
 // Schedule Types
 export interface PostSchedule {
   id: string;
   user_id: string;
   topics: string[];
-  scheduled_at: string;
+  time: string; // in "HH:mm" format (e.g. "09:00")
+  days: Weekday[]; // e.g. ["Monday", "Wednesday", "Friday"]
+  scheduled_at: string; // original creation or next post time (UTC ISO string)
   status: 'pending' | 'completed' | 'failed';
   error?: string;
   local_timezone?: string;
@@ -56,7 +61,6 @@ export interface PostSchedule {
   updated_at?: string;
 }
 
-// Dashboard Types
 export interface DashboardStats {
   totalPosts: number;
   totalViews: number;

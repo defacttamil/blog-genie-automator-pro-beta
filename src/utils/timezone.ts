@@ -1,12 +1,10 @@
-
 import { format, formatInTimeZone } from 'date-fns-tz';
 import { supabase } from '@/integrations/supabase/client';
 
 export async function getUserTimezone(): Promise<string> {
   try {
-    // First try to get user's stored preference
     const { data: { user } } = await supabase.auth.getUser();
-    
+
     if (user) {
       const { data: preferences } = await supabase
         .from('user_preferences')
@@ -14,23 +12,19 @@ export async function getUserTimezone(): Promise<string> {
         .eq('id', user.id)
         .single();
 
-      if (preferences?.timezone) {
-        return preferences.timezone;
-      }
+      if (preferences?.timezone) return preferences.timezone;
 
-      // If no stored preference, get browser timezone and store it
+      // store browser tz if new
       const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      
       if (browserTimezone) {
         await supabase.from('user_preferences').upsert({
-          id: user.id, // Add the required id field
+          id: user.id,
           timezone: browserTimezone
         });
         return browserTimezone;
       }
     }
-
-    return 'UTC'; // Fallback to UTC
+    return 'UTC'; // fallback
   } catch (error) {
     console.error('Error getting user timezone:', error);
     return 'UTC';
