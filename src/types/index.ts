@@ -1,4 +1,3 @@
-
 // User Types
 export interface User {
   id: string;
@@ -47,11 +46,14 @@ export interface UserCredentials {
 // Schedule Types
 export interface PostSchedule {
   id: string;
-  userId: string;
+  user_id: string;
   topics: string[];
-  scheduledDate: string;
+  scheduled_at: string;
   status: 'pending' | 'completed' | 'failed';
   error?: string;
+  local_timezone?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 // Dashboard Types

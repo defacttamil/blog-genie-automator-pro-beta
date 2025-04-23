@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -85,7 +84,8 @@ export default function Scheduling() {
     setIsSubmitting(true);
     
     try {
-      const success = await createSchedule(topicsArray, scheduledDate.toISOString());
+      // Now passing Date object directly instead of ISO string
+      const success = await createSchedule(topicsArray, scheduledDate);
       
       if (success) {
         toast({

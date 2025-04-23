@@ -4,7 +4,9 @@ import { UserCredentials, PostSchedule, DashboardStats } from '@/types';
 import { useAuth } from './AuthContext';
 import { WordPressClient } from '@/lib/wordpress';
 import { GeminiClient } from '@/lib/gemini';
-import { startSimulator, stopSimulator } from '@/lib/simulator';
+import { startSimulator, stopSimulator, createSchedule as createScheduleInSimulator } from '@/lib/simulator';
+import { getUserTimezone } from '@/utils/timezone';
+import { supabase } from '@/integrations/supabase/client';
 
 interface UserDataContextType {
   credentials: UserCredentials | null;
@@ -15,7 +17,7 @@ interface UserDataContextType {
   isLoading: boolean;
   error: string | null;
   updateCredentials: (credentials: UserCredentials) => void;
-  createSchedule: (topics: string[], scheduledDate: string) => Promise<boolean>;
+  createSchedule: (topics: string[], scheduledDate: Date) => Promise<boolean>;
   refreshStats: () => Promise<void>;
 }
 
@@ -23,7 +25,6 @@ const UserDataContext = createContext<UserDataContextType | undefined>(undefined
 
 // Storage keys
 const CREDENTIALS_KEY = 'blog_genie_credentials_';
-const SCHEDULES_KEY = 'blog_genie_schedules_';
 
 const initialStats: DashboardStats = {
   totalPosts: 0,
@@ -100,10 +101,16 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
         setCredentials(JSON.parse(storedCredentials));
       }
       
-      // Load schedules
-      const storedSchedules = localStorage.getItem(`${SCHEDULES_KEY}${userId}`);
-      if (storedSchedules) {
-        setSchedules(JSON.parse(storedSchedules));
+      // Load schedules from Supabase
+      const { data: supabaseSchedules, error } = await supabase
+        .from('post_schedules')
+        .select('*')
+        .eq('user_id', userId);
+        
+      if (error) throw error;
+      
+      if (supabaseSchedules) {
+        setSchedules(supabaseSchedules);
       }
       
       setIsLoading(false);
@@ -129,26 +136,28 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
   };
 
   // Create a new post schedule
-  const createSchedule = async (topics: string[], scheduledDate: string): Promise<boolean> => {
+  const createSchedule = async (topics: string[], scheduledDate: Date): Promise<boolean> => {
     if (!user) return false;
     
     try {
-      const newSchedule: PostSchedule = {
-        id: Date.now().toString(),
-        userId: user.id,
-        topics,
-        scheduledDate,
-        status: 'pending',
-      };
+      const success = await createScheduleInSimulator(user.id, topics, scheduledDate);
       
-      const updatedSchedules = [...schedules, newSchedule];
-      localStorage.setItem(`${SCHEDULES_KEY}${user.id}`, JSON.stringify(updatedSchedules));
-      setSchedules(updatedSchedules);
+      if (success) {
+        // Refresh schedules from Supabase
+        const { data: updatedSchedules } = await supabase
+          .from('post_schedules')
+          .select('*')
+          .eq('user_id', user.id);
+          
+        if (updatedSchedules) {
+          setSchedules(updatedSchedules);
+        }
+        
+        // Update dashboard stats
+        await refreshStats();
+      }
       
-      // Update dashboard stats
-      await refreshStats();
-      
-      return true;
+      return success;
     } catch (error) {
       console.error('Error creating schedule:', error);
       setError('Failed to create schedule');
@@ -171,18 +180,26 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
       
       // Count upcoming schedules
       const now = new Date();
-      const upcoming = schedules.filter(s => 
-        s.status === 'pending' && new Date(s.scheduledDate) > now
-      ).length;
       
-      // Count failed posts
-      const failed = schedules.filter(s => s.status === 'failed').length;
+      // Get counts from Supabase
+      const { count: upcomingCount } = await supabase
+        .from('post_schedules')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('status', 'pending')
+        .gt('scheduled_at', now.toISOString());
+        
+      const { count: failedCount } = await supabase
+        .from('post_schedules')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('status', 'failed');
       
       setDashboardStats({
         totalPosts: wpStats.totalPosts,
         totalViews: wpStats.totalViews,
-        upcomingSchedules: upcoming,
-        failedPosts: failed,
+        upcomingSchedules: upcomingCount || 0,
+        failedPosts: failedCount || 0,
       });
       
       setIsLoading(false);

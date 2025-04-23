@@ -5,23 +5,29 @@ import { supabase } from '@/integrations/supabase/client';
 export async function getUserTimezone(): Promise<string> {
   try {
     // First try to get user's stored preference
-    const { data: preferences } = await supabase
-      .from('user_preferences')
-      .select('timezone')
-      .single();
-
-    if (preferences?.timezone) {
-      return preferences.timezone;
-    }
-
-    // If no stored preference, get browser timezone and store it
-    const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const { data: { user } } = await supabase.auth.getUser();
     
-    if (browserTimezone) {
-      await supabase.from('user_preferences').upsert({
-        timezone: browserTimezone
-      });
-      return browserTimezone;
+    if (user) {
+      const { data: preferences } = await supabase
+        .from('user_preferences')
+        .select('timezone')
+        .eq('id', user.id)
+        .single();
+
+      if (preferences?.timezone) {
+        return preferences.timezone;
+      }
+
+      // If no stored preference, get browser timezone and store it
+      const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      
+      if (browserTimezone) {
+        await supabase.from('user_preferences').upsert({
+          id: user.id, // Add the required id field
+          timezone: browserTimezone
+        });
+        return browserTimezone;
+      }
     }
 
     return 'UTC'; // Fallback to UTC
