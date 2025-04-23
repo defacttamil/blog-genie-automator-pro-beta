@@ -39,5 +39,7 @@ export function convertToUTC(date: Date, timezone: string): Date {
 }
 
 export function formatLocalTime(date: Date, timezone: string): string {
-  return format(date, 'PPp', { timeZone: timezone });
+  // The format function from date-fns v3 doesn't directly accept a timeZone property
+  // We'll use formatInTimeZone from date-fns-tz instead
+  return formatInTimeZone(date, timezone, 'PPp');
 }
