@@ -1,4 +1,6 @@
-import { format, formatInTimeZone } from 'date-fns-tz';
+
+import { format } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
 import { supabase } from '@/integrations/supabase/client';
 
 export async function getUserTimezone(): Promise<string> {

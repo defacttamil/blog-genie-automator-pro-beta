@@ -1,3 +1,4 @@
+
 /**
  * This is a simulator for blog post scheduling
  * 
@@ -19,7 +20,7 @@ const SCHEDULES_KEY_PREFIX = 'blog_genie_schedules_';
  * Process pending schedules that are due
  */
 export async function processSchedules(userId: string, credentials: UserCredentials): Promise<void> {
-  // ... get user's timezone ...
+  // Get user's timezone
   const timezone = credentials.local_timezone || 'UTC';
   // ... get pending schedules from Supabase ...
   const { data: schedules } = await supabase
@@ -41,28 +42,35 @@ export async function processSchedules(userId: string, credentials: UserCredenti
   const now = new Date();
   // Process each pending recurring schedule whose next event is due
   for (const schedule of schedules) {
-    const { time, days, local_timezone, scheduled_at } = schedule;
-    const tz = local_timezone || timezone;
-    // Parse next eligible post time in user's tz
-    const nextRunUtc = new Date(scheduled_at);
-    if (nextRunUtc <= now) {
-      try {
+    try {
+      const scheduledAt = new Date(schedule.scheduled_at);
+      if (scheduledAt <= now) {
         // Process posts for each topic
-        await processSchedule(schedule, wordpressClient, geminiClient);
+        await processSchedule({
+          id: schedule.id,
+          user_id: schedule.user_id,
+          topics: schedule.topics,
+          time: schedule.time,
+          days: schedule.days,
+          scheduled_at: schedule.scheduled_at,
+          status: schedule.status,
+          error: schedule.error,
+          local_timezone: schedule.local_timezone,
+          created_at: schedule.created_at,
+          updated_at: schedule.updated_at,
+        }, wordpressClient, geminiClient);
 
         // Find next occurrence for recurring schedule:
-        const nextFire = getNextScheduleDayUtc(days, time, tz, now);
+        const nextFire = getNextScheduleDayUtc(schedule.days, schedule.time, schedule.local_timezone || timezone, now);
         await supabase.from('post_schedules').update({
           scheduled_at: nextFire.toISOString()
         }).eq('id', schedule.id);
-
-        // Mark as completed if not recurring (in this design, always recurring - or could have one-off logic)
-      } catch (error) {
-        await supabase.from('post_schedules').update({
-          status: 'failed',
-          error: error instanceof Error ? error.message : 'Unknown error'
-        }).eq('id', schedule.id);
       }
+    } catch (error) {
+      await supabase.from('post_schedules').update({
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }).eq('id', schedule.id);
     }
   }
 }
@@ -110,17 +118,23 @@ function getNextScheduleDayUtc(
 export async function createSchedule(
   userId: string,
   topics: string[],
-  scheduledDate: Date
+  time: string,
+  days: Weekday[]
 ): Promise<boolean> {
   try {
     const timezone = await getUserTimezone();
-    const utcDate = convertToUTC(scheduledDate, timezone);
+    
+    // Calculate the next occurrence of the scheduled time
+    const nextRun = getNextScheduleDayUtc(days, time, timezone);
 
     const { error } = await supabase.from('post_schedules').insert({
       user_id: userId,
       topics,
-      scheduled_at: utcDate.toISOString(),
-      local_timezone: timezone
+      time,
+      days,
+      scheduled_at: nextRun.toISOString(),
+      local_timezone: timezone,
+      status: 'pending'
     });
 
     if (error) {

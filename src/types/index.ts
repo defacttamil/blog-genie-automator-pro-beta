@@ -1,3 +1,4 @@
+
 // User Types
 export interface User {
   id: string;
@@ -41,6 +42,7 @@ export interface UserCredentials {
   wordpressUsername: string;
   wordpressAppPassword: string;
   geminiApiKey: string;
+  local_timezone?: string;
 }
 
 // Days of the week for scheduling options

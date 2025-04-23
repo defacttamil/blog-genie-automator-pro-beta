@@ -84,7 +84,7 @@ export class PostScheduler {
       for (const schedule of schedules) {
         if (
           schedule.status === 'pending' && 
-          new Date(schedule.scheduledDate) <= now
+          new Date(schedule.scheduled_at) <= now
         ) {
           // Process this schedule
           console.log(`Processing scheduled post: ${schedule.id}`);

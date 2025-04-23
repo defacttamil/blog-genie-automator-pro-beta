@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import MainLayout from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
@@ -10,12 +11,26 @@ import { Loader2 } from 'lucide-react';
 import { UserCredentials } from '@/types';
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
 
-const timezones = Intl.supportedValuesOf
-  ? Intl.supportedValuesOf('timeZone')
-  : [
-    "UTC", "America/New_York", "America/Chicago", "Europe/London",
-    "Asia/Kolkata", "Asia/Singapore", "Australia/Sydney"
-  ];
+// Default list of common timezones if Intl.supportedValuesOf is not available
+const DEFAULT_TIMEZONES = [
+  "UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+  "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Moscow",
+  "Asia/Tokyo", "Asia/Shanghai", "Asia/Kolkata", "Asia/Singapore",
+  "Australia/Sydney", "Pacific/Auckland"
+];
+
+// Get timezones safely
+const timezones = (() => {
+  try {
+    // Try to use the modern API if available
+    if (typeof Intl !== 'undefined' && 'supportedValuesOf' in Intl) {
+      return Intl.supportedValuesOf('timeZone');
+    }
+  } catch (e) {
+    console.warn('Intl.supportedValuesOf not available, using fallback timezones');
+  }
+  return DEFAULT_TIMEZONES;
+})();
 
 export default function Account() {
   const { credentials, updateCredentials } = useUserData();
@@ -34,8 +49,11 @@ export default function Account() {
   );
 
   useEffect(() => {
-    if (credentials && credentials.local_timezone) {
-      setUserTimezone(credentials.local_timezone);
+    if (credentials) {
+      setFormData(credentials);
+      if (credentials.local_timezone) {
+        setUserTimezone(credentials.local_timezone);
+      }
     }
   }, [credentials]);
 

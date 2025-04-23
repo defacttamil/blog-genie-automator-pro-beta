@@ -15,7 +15,7 @@ interface UserDataContextType {
   geminiClient: GeminiClient | null;
   isLoading: boolean;
   error: string | null;
-  updateCredentials: (credentials: UserCredentials & { local_timezone?: string }) => void;
+  updateCredentials: (credentials: UserCredentials) => void;
   createSchedule: (topics: string[], time: string, days: Weekday[]) => Promise<boolean>;
   refreshStats: () => Promise<void>;
 }
@@ -120,8 +120,8 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Update user credentials with local_timezone (comes from Account page)
-  const updateCredentials = (newCredentials: UserCredentials & { local_timezone?: string }) => {
+  // Update user credentials
+  const updateCredentials = (newCredentials: UserCredentials) => {
     if (!user) return;
     try {
       localStorage.setItem(`${CREDENTIALS_KEY}${user.id}`, JSON.stringify(newCredentials));
@@ -141,33 +141,19 @@ export function UserDataProvider({ children }: { children: ReactNode }) {
   ): Promise<boolean> => {
     if (!user) return false;
     try {
-      // Store as a new schedule with days and time
-      // (Simulator will expand/trigger as needed)
-      const userTimezone = credentials?.local_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-      const now = new Date();
-      const nextDay = getNextScheduleDayUtc(days, time, userTimezone);
-
-      // Insert one schedule row (topics, days, time, timezone, status=pending)
-      const { error } = await supabase.from('post_schedules').insert({
-        user_id: user.id,
-        topics,
-        time,
-        days,
-        scheduled_at: nextDay.toISOString(), // next occurence in UTC
-        local_timezone: userTimezone,
-        status: 'pending',
-      });
-      if (error) throw error;
-      // Refresh schedules
-      const { data: updatedSchedules } = await supabase
-        .from('post_schedules')
-        .select('*')
-        .eq('user_id', user.id);
-      if (updatedSchedules) {
-        setSchedules(updatedSchedules.map(mapScheduleRow));
+      const success = await createScheduleInSimulator(user.id, topics, time, days);
+      if (success) {
+        // Refresh schedules
+        const { data: updatedSchedules } = await supabase
+          .from('post_schedules')
+          .select('*')
+          .eq('user_id', user.id);
+        if (updatedSchedules) {
+          setSchedules(updatedSchedules.map(mapScheduleRow));
+        }
+        await refreshStats();
       }
-      await refreshStats();
-      return true;
+      return success;
     } catch (error) {
       console.error('Error creating schedule:', error);
       setError('Failed to create schedule');
