@@ -1,4 +1,5 @@
-import { useState } from 'react';
+
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Clock, Loader2 } from 'lucide-react';
 import MainLayout from '@/components/layout/MainLayout';
@@ -7,11 +8,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
-import { cn } from '@/lib/utils';
-import { useUserData } from '@/context/UserDataContext';
 import { useToast } from '@/hooks/use-toast';
 import { Weekday } from '@/types';
+import { useUserData } from '@/context/UserDataContext';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 
 const WEEKDAYS: Weekday[] = [
   "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
@@ -22,9 +23,43 @@ export default function Scheduling() {
   const [topics, setTopics] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedDays, setSelectedDays] = useState<Weekday[]>([]);
+  const [userVerified, setUserVerified] = useState(false);
   const { credentials, createSchedule } = useUserData();
+  const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+
+  // Verify user UUID on component mount
+  useEffect(() => {
+    async function verifyUser() {
+      if (!user) {
+        toast({ 
+          title: "Authentication required", 
+          description: "Please log in to schedule posts", 
+          variant: "destructive" 
+        });
+        navigate('/login');
+        return;
+      }
+
+      // Check if user ID is a valid UUID format
+      const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(user.id);
+      
+      if (!isValidUUID) {
+        toast({ 
+          title: "User ID format error", 
+          description: "Your user ID is not in the correct format. Please contact support.", 
+          variant: "destructive" 
+        });
+        console.error("Invalid UUID format for user:", user.id);
+        return;
+      }
+
+      setUserVerified(true);
+    }
+
+    verifyUser();
+  }, [user, navigate, toast]);
 
   // Check if credentials are set up
   const needsSetup = !credentials || 
@@ -35,6 +70,16 @@ export default function Scheduling() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!userVerified) {
+      toast({ 
+        title: "User verification error", 
+        description: "Cannot schedule posts until user verification is complete", 
+        variant: "destructive" 
+      });
+      return;
+    }
+
     if (!selectedDays.length) {
       toast({ title: "Choose days", description: "Pick at least one day", variant: "destructive" });
       return;
@@ -63,11 +108,11 @@ export default function Scheduling() {
         setSelectedDays([]);
         navigate('/dashboard');
       } else {
-        toast({ title: "Scheduling failed", description: "Failed to schedule posts", variant: "destructive" });
+        toast({ title: "Scheduling failed", description: "Failed to schedule posts. Please check console for details.", variant: "destructive" });
       }
     } catch (error) {
       console.error('Scheduling error:', error);
-      toast({ title: "Scheduling error", description: "An unexpected error occurred", variant: "destructive" });
+      toast({ title: "Scheduling error", description: "An unexpected error occurred. Please try again later.", variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
@@ -78,6 +123,17 @@ export default function Scheduling() {
       ? days.filter(d => d !== day)
       : [...days, day]);
   };
+
+  if (!userVerified) {
+    return (
+      <MainLayout>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="ml-2">Verifying user authentication...</span>
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>

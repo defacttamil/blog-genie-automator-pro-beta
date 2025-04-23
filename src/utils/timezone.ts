@@ -19,11 +19,16 @@ export async function getUserTimezone(): Promise<string> {
       // store browser tz if new
       const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       if (browserTimezone) {
-        await supabase.from('user_preferences').upsert({
-          id: user.id,
-          timezone: browserTimezone
-        });
-        return browserTimezone;
+        try {
+          await supabase.from('user_preferences').upsert({
+            id: user.id,
+            timezone: browserTimezone
+          });
+          return browserTimezone;
+        } catch (error) {
+          console.error('Error storing user timezone:', error);
+          return browserTimezone; // Still return the browser timezone even if storage fails
+        }
       }
     }
     return 'UTC'; // fallback

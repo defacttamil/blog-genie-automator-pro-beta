@@ -13,9 +13,6 @@ import { convertToUTC, getUserTimezone } from '@/utils/timezone';
 import { supabase } from '@/integrations/supabase/client';
 import { formatInTimeZone } from 'date-fns-tz';
 
-// Storage keys
-const SCHEDULES_KEY_PREFIX = 'blog_genie_schedules_';
-
 /**
  * Process pending schedules that are due
  */
@@ -23,7 +20,17 @@ export async function processSchedules(userId: string, credentials: UserCredenti
   try {
     // Get user's timezone
     const timezone = credentials.local_timezone || 'UTC';
-    // ... get pending schedules from Supabase ...
+    
+    // For Supabase UUID format validation
+    // This will prevent the "invalid input syntax for type uuid" error
+    const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId);
+    
+    if (!isValidUUID) {
+      console.error('Invalid UUID format:', userId);
+      return; // Exit early if user ID is not a valid UUID
+    }
+    
+    // Get pending schedules from Supabase
     const { data: schedules, error } = await supabase
       .from('post_schedules')
       .select('*')
@@ -37,7 +44,7 @@ export async function processSchedules(userId: string, credentials: UserCredenti
 
     if (!schedules || schedules.length === 0) return;
 
-    // ... init clients ...
+    // Init clients
     const wordpressClient = new WordPressClient(
       credentials.wordpressSiteUrl,
       credentials.wordpressUsername,
@@ -160,6 +167,14 @@ export async function createSchedule(
     
     if (!days || days.length === 0) {
       console.error("No days selected for scheduling");
+      return false;
+    }
+    
+    // Validate UUID format for Supabase
+    const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId);
+    
+    if (!isValidUUID) {
+      console.error("Invalid user ID format for database:", userId);
       return false;
     }
     
