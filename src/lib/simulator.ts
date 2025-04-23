@@ -20,86 +20,78 @@ const SCHEDULES_KEY_PREFIX = 'blog_genie_schedules_';
  * Process pending schedules that are due
  */
 export async function processSchedules(userId: string, credentials: UserCredentials): Promise<void> {
-  // Get user's timezone
-  const timezone = credentials.local_timezone || 'UTC';
-  // ... get pending schedules from Supabase ...
-  const { data: schedules, error } = await supabase
-    .from('post_schedules')
-    .select('*')
-    .eq('status', 'pending')
-    .eq('user_id', userId);
+  try {
+    // Get user's timezone
+    const timezone = credentials.local_timezone || 'UTC';
+    // ... get pending schedules from Supabase ...
+    const { data: schedules, error } = await supabase
+      .from('post_schedules')
+      .select('*')
+      .eq('status', 'pending')
+      .eq('user_id', userId);
 
-  if (error) {
-    console.error('Error fetching schedules:', error);
-    return;
-  }
+    if (error) {
+      console.error('Error fetching schedules:', error);
+      return;
+    }
 
-  if (!schedules || schedules.length === 0) return;
+    if (!schedules || schedules.length === 0) return;
 
-  // ... init clients ...
-  const wordpressClient = new WordPressClient(
-    credentials.wordpressSiteUrl,
-    credentials.wordpressUsername,
-    credentials.wordpressAppPassword
-  );
-  const geminiClient = new GeminiClient(credentials.geminiApiKey);
+    // ... init clients ...
+    const wordpressClient = new WordPressClient(
+      credentials.wordpressSiteUrl,
+      credentials.wordpressUsername,
+      credentials.wordpressAppPassword
+    );
+    const geminiClient = new GeminiClient(credentials.geminiApiKey);
 
-  const now = new Date();
-  // Process each pending recurring schedule whose next event is due
-  for (const schedule of schedules) {
-    try {
-      const scheduledAt = new Date(schedule.scheduled_at);
-      if (scheduledAt <= now) {
-        // Create a PostSchedule object with time and days properties
-        // Since these might not exist in the database schema yet
-        let timeValue = "12:00"; // Default time
-        let daysValue: Weekday[] = ["Monday"]; // Default day
-        
-        // If the database has these columns, use them
-        if ('time' in schedule && typeof schedule.time === 'string') {
-          timeValue = schedule.time;
+    const now = new Date();
+    // Process each pending recurring schedule whose next event is due
+    for (const schedule of schedules) {
+      try {
+        const scheduledAt = new Date(schedule.scheduled_at);
+        if (scheduledAt <= now) {
+          // Convert database record to PostSchedule type
+          const postSchedule: PostSchedule = {
+            id: schedule.id,
+            user_id: schedule.user_id,
+            topics: schedule.topics,
+            time: schedule.time || "12:00",
+            days: schedule.days as Weekday[] || ["Monday"],
+            scheduled_at: schedule.scheduled_at,
+            status: schedule.status as "pending" | "completed" | "failed",
+            error: schedule.error,
+            local_timezone: schedule.local_timezone,
+            created_at: schedule.created_at,
+            updated_at: schedule.updated_at,
+          };
+          
+          // Process posts for each topic
+          await processSchedule(postSchedule, wordpressClient, geminiClient);
+
+          // Find next occurrence for recurring schedule:
+          const nextFire = getNextScheduleDayUtc(
+            postSchedule.days, 
+            postSchedule.time,
+            postSchedule.local_timezone || timezone, 
+            now
+          );
+          
+          await supabase.from('post_schedules').update({
+            scheduled_at: nextFire.toISOString(),
+            status: 'pending' // Reset status for next run
+          }).eq('id', schedule.id);
         }
-        
-        if ('days' in schedule && Array.isArray(schedule.days)) {
-          daysValue = schedule.days as Weekday[];
-        }
-        
-        const postSchedule: PostSchedule = {
-          id: schedule.id,
-          user_id: schedule.user_id,
-          topics: schedule.topics,
-          time: timeValue,
-          days: daysValue,
-          scheduled_at: schedule.scheduled_at,
-          status: schedule.status as "pending" | "completed" | "failed",
-          error: schedule.error,
-          local_timezone: schedule.local_timezone,
-          created_at: schedule.created_at,
-          updated_at: schedule.updated_at,
-        };
-        
-        // Process posts for each topic
-        await processSchedule(postSchedule, wordpressClient, geminiClient);
-
-        // Find next occurrence for recurring schedule:
-        const nextFire = getNextScheduleDayUtc(
-          daysValue, 
-          timeValue,
-          postSchedule.local_timezone || timezone, 
-          now
-        );
-        
+      } catch (error) {
+        console.error('Error processing schedule:', error);
         await supabase.from('post_schedules').update({
-          scheduled_at: nextFire.toISOString()
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'Unknown error'
         }).eq('id', schedule.id);
       }
-    } catch (error) {
-      console.error('Error processing schedule:', error);
-      await supabase.from('post_schedules').update({
-        status: 'failed',
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }).eq('id', schedule.id);
     }
+  } catch (e) {
+    console.error("Error in processSchedules:", e);
   }
 }
 
@@ -123,12 +115,17 @@ function getNextScheduleDayUtc(
   tz: string,
   from: Date = new Date()
 ): Date {
+  // Validate days array
+  if (!days || !Array.isArray(days) || days.length === 0) {
+    days = ["Monday"]; // Default to Monday if days array is invalid
+  }
+
   for (let addDays = 0; addDays < 7; addDays++) {
     const local = new Date(from);
     local.setDate(local.getDate() + addDays);
     const weekday = local.toLocaleDateString('en-US', { weekday: 'long', timeZone: tz }) as Weekday;
     if (days.includes(weekday)) {
-      const [h, m] = time.split(':').map(Number);
+      const [h, m] = (time || "12:00").split(':').map(Number);
       local.setHours(h, m, 0, 0);
       // Construct that time in user's tz, then convert to UTC
       const inTzString = formatInTimeZone(local, tz, "yyyy-MM-dd'T'HH:mm:ssXXX");
@@ -136,8 +133,11 @@ function getNextScheduleDayUtc(
       if (asUtc > from) return asUtc;
     }
   }
-  // If somehow none match, return now as fallback
-  return new Date();
+  // If somehow none match, return tomorrow as fallback
+  const tomorrow = new Date(from);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(12, 0, 0, 0);
+  return tomorrow;
 }
 
 /**
@@ -152,10 +152,30 @@ export async function createSchedule(
   try {
     const timezone = await getUserTimezone();
     
+    // Validate inputs
+    if (!topics || topics.length === 0) {
+      console.error("No topics provided for scheduling");
+      return false;
+    }
+    
+    if (!days || days.length === 0) {
+      console.error("No days selected for scheduling");
+      return false;
+    }
+    
     // Calculate the next occurrence of the scheduled time
     const nextRun = getNextScheduleDayUtc(days, time, timezone);
 
-    // Insert the schedule with time and days as JSON fields
+    console.log("Creating schedule with:", {
+      userId,
+      topics,
+      time,
+      days,
+      nextRun: nextRun.toISOString(),
+      timezone
+    });
+
+    // Insert the schedule with time and days fields
     const { error } = await supabase.from('post_schedules').insert({
       user_id: userId,
       topics,

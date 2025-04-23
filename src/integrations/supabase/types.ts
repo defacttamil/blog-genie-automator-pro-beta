@@ -12,33 +12,39 @@ export type Database = {
       post_schedules: {
         Row: {
           created_at: string
+          days: string[] | null
           error: string | null
           id: string
           local_timezone: string
           scheduled_at: string
           status: string
+          time: string | null
           topics: string[]
           updated_at: string
           user_id: string
         }
         Insert: {
           created_at?: string
+          days?: string[] | null
           error?: string | null
           id?: string
           local_timezone: string
           scheduled_at: string
           status?: string
+          time?: string | null
           topics: string[]
           updated_at?: string
           user_id: string
         }
         Update: {
           created_at?: string
+          days?: string[] | null
           error?: string | null
           id?: string
           local_timezone?: string
           scheduled_at?: string
           status?: string
+          time?: string | null
           topics?: string[]
           updated_at?: string
           user_id?: string
