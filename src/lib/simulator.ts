@@ -23,11 +23,16 @@ export async function processSchedules(userId: string, credentials: UserCredenti
   // Get user's timezone
   const timezone = credentials.local_timezone || 'UTC';
   // ... get pending schedules from Supabase ...
-  const { data: schedules } = await supabase
+  const { data: schedules, error } = await supabase
     .from('post_schedules')
     .select('*')
     .eq('status', 'pending')
     .eq('user_id', userId);
+
+  if (error) {
+    console.error('Error fetching schedules:', error);
+    return;
+  }
 
   if (!schedules || schedules.length === 0) return;
 
@@ -45,16 +50,20 @@ export async function processSchedules(userId: string, credentials: UserCredenti
     try {
       const scheduledAt = new Date(schedule.scheduled_at);
       if (scheduledAt <= now) {
-        // Create a PostSchedule object from the database record
-        // We need to use type assertion here since the database doesn't have time and days columns
-        // but they're stored in the metadata field in the real database
+        // Create a PostSchedule object with time and days properties
+        // Since these might not exist in the database schema yet
+        let timeValue = "12:00"; // Default time
+        let daysValue: Weekday[] = ["Monday"]; // Default day
         
-        // We'll define default values and use custom attributes to access these properties
-        const timeValue = "12:00"; // Default time if not available
-        const daysValue: Weekday[] = []; // Default empty array
+        // If the database has these columns, use them
+        if ('time' in schedule && typeof schedule.time === 'string') {
+          timeValue = schedule.time;
+        }
         
-        // In a real app, these values would be stored in the database
-        // For now, we're creating a compatible PostSchedule object
+        if ('days' in schedule && Array.isArray(schedule.days)) {
+          daysValue = schedule.days as Weekday[];
+        }
+        
         const postSchedule: PostSchedule = {
           id: schedule.id,
           user_id: schedule.user_id,
@@ -85,6 +94,7 @@ export async function processSchedules(userId: string, credentials: UserCredenti
         }).eq('id', schedule.id);
       }
     } catch (error) {
+      console.error('Error processing schedule:', error);
       await supabase.from('post_schedules').update({
         status: 'failed',
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -145,6 +155,7 @@ export async function createSchedule(
     // Calculate the next occurrence of the scheduled time
     const nextRun = getNextScheduleDayUtc(days, time, timezone);
 
+    // Insert the schedule with time and days as JSON fields
     const { error } = await supabase.from('post_schedules').insert({
       user_id: userId,
       topics,
@@ -156,6 +167,7 @@ export async function createSchedule(
     });
 
     if (error) {
+      console.error("Schedule creation error:", error);
       throw error;
     }
 

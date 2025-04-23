@@ -63,9 +63,6 @@ export interface PostSchedule {
   updated_at?: string;
 }
 
-// Extend the Supabase database types without duplicate declaration
-// We'll remove this and fix the simulator code instead
-
 export interface DashboardStats {
   totalPosts: number;
   totalViews: number;
